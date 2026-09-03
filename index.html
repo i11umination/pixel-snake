@@ -635,8 +635,11 @@ canvas.addEventListener('touchstart', e => {
   if (e.touches.length !== 1) return;
   const t = e.touches[0];
   touchStart = { x: t.clientX, y: t.clientY };
-  if (isTouch && mode === 'play') {                 // 虚拟方向键即时响应
-    const p = getPos(t);
+  if (!isTouch) return;
+  const p = getPos(t);
+  const vr = curVolRects;
+  // 虚拟方向键即时响应
+  if (mode === 'play') {
     for (const name of ['up', 'down', 'left', 'right']) {
       if (inRect(p, dpad[name])) {
         pushDir(DIRS[name]);
@@ -646,9 +649,30 @@ canvas.addEventListener('touchstart', e => {
       }
     }
   }
+  // 按钮在手指按下瞬间直接响应(不依赖 click 合成, 触屏更灵敏可靠)
+  const mark = () => { suppressClickUntil = Date.now() + 600; };
+  if (mode === 'start') {
+    if (inRect(p, startBtn)) { mark(); startGame(); }
+    else if (vr && inRect(p, vr.mute)) { mark(); toggleMute(); }
+    else if (vr && inBarHit(p)) { mark(); setVolFromX(p.x); }
+  } else if (mode === 'over') {
+    if (inRect(p, restartBtn)) { mark(); restartGame(); }
+  } else if (mode === 'play') {
+    if (inRect(p, pauseBtn)) { mark(); pauseGame(); }
+  } else if (mode === 'pause') {
+    if (inRect(p, pauseBtn)) { mark(); resumeGame(); }
+    else if (vr && inRect(p, vr.mute)) { mark(); toggleMute(); }
+    else if (vr && inBarHit(p)) { mark(); setVolFromX(p.x); }
+    else { mark(); resumeGame(); }
+  }
 }, { passive: false });
 canvas.addEventListener('touchmove', e => {
-  if (touchStart) e.preventDefault();               // 阻止滑动时页面滚动
+  if (!touchStart) return;
+  const t = e.touches[0];
+  const dx = t.clientX - touchStart.x, dy = t.clientY - touchStart.y;
+  // 只有真正的滑动才阻止页面滚动; 轻点(含手指微抖)不能 preventDefault,
+  // 否则浏览器会取消随后的 click 合成事件, 导致按钮点不动
+  if (Math.max(Math.abs(dx), Math.abs(dy)) > 12) e.preventDefault();
 }, { passive: false });
 canvas.addEventListener('touchend', e => {
   dpadPressed = null;
