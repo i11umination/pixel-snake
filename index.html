@@ -83,13 +83,33 @@ const GREEN_EGG_P = 0.15;            // 每次吃奶蛋的刷新概率
 const GREEN_EGG_MOVE_MS = 400;       // 游走速度(0.4秒/格, 比蛇慢得多)
 const GREEN_EGG_LIFE_MS = 6500;      // 存活时间
 
-/* 背景音乐与音量 */
+/* 背景音乐与音效 */
 const bgm = new Audio('bgm.mp3');
 bgm.loop = true;
+bgm.preload = 'auto';
 const sfxHit = new Audio('hit.mp3');   // 扣血/游戏结束
 const sfxEat = [new Audio('eat1.mp3'), new Audio('eat2.mp3'), new Audio('eat3.mp3')];
 const sfxHeal = new Audio('heal.mp3'); // 吃绿色奶蛋回血
+// 音效注册表: [文件名, HTMLAudio回退元素]
+const SFX_LIST = [['hit', sfxHit], ['eat1', sfxEat[0]], ['eat2', sfxEat[1]],
+                  ['eat3', sfxEat[2]], ['heal', sfxHeal]];
+for (const [, a] of SFX_LIST) { a.preload = 'auto'; try { a.load(); } catch (e) {} }
 let vol = 1, volMuted = false, bgmStarted = false;
+let actx = null, sfxBuffs = {};        // Web Audio 音效引擎(iOS/微信下更稳定, 支持重叠播放)
+function initAudioEngine() {           // 首次用户手势时初始化
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC || actx) return;
+  try {
+    actx = new AC();
+    for (const [name] of SFX_LIST) {
+      fetch(name + '.mp3')
+        .then(r => { if (!r.ok) throw new Error('http'); return r.arrayBuffer(); })
+        .then(buf => actx.decodeAudioData(buf))
+        .then(dec => { sfxBuffs[name] = dec; })
+        .catch(() => {});
+    }
+  } catch (e) {}
+}
 function applyVol() {
   const v = volMuted ? 0 : vol;
   bgm.volume = v;
@@ -97,8 +117,21 @@ function applyVol() {
   sfxHeal.volume = v;
   for (const a of sfxEat) a.volume = v;
 }
-function playSfx(a) {                   // 从头播放(允许连续触发)
-  try {
+function playSfx(a, name) {            // 从头播放; 多音效可重叠, 互不打断
+  if (actx && sfxBuffs[name]) {
+    try {
+      if (actx.state === 'suspended') actx.resume();
+      const src = actx.createBufferSource();
+      src.buffer = sfxBuffs[name];
+      const g = actx.createGain();
+      g.gain.value = volMuted ? 0 : vol;
+      src.connect(g);
+      g.connect(actx.destination);
+      src.start();
+      return;
+    } catch (e) {}
+  }
+  try {                                // 回退: HTMLAudio
     a.currentTime = 0;
     const p = a.play();
     if (p && p.catch) p.catch(() => {});
@@ -115,6 +148,7 @@ function setVolFromX(x) {
 function ensureBgm() {               // 浏览器要求用户手势后才能播放, 在点击开始时启动
   if (bgmStarted) return;
   bgmStarted = true;
+  initAudioEngine();                 // 借手势初始化 Web Audio(预解码全部音效)
   const p = bgm.play();
   if (p && p.catch) p.catch(() => { bgmStarted = false; });
 }
@@ -309,14 +343,15 @@ function tick() {
     score += 3;
     if (hp < 3) hp++;
     else grew = true;
-    playSfx(sfxHeal);
+    playSfx(sfxHeal, 'heal');
     fx.push({ x: nx, y: ny, t0: performance.now(), color: 'rgba(74,222,106,#A)' });
     greenEgg = null;
   }
   if (eating) {
     score++;
     fx.push({ x: nx, y: ny, t0: performance.now() });
-    playSfx(sfxEat[Math.floor(Math.random() * sfxEat.length)]);   // 随机三选一
+    const ei = Math.floor(Math.random() * sfxEat.length);
+    playSfx(sfxEat[ei], 'eat' + (ei + 1));   // 随机三选一
     regenWalls();          // 墙体重新布局(避开蛇身与前方3格)
     spawnFood();
     if (Math.random() < GREEN_EGG_P) spawnGreenEgg();   // 15%概率刷新绿色奶蛋
@@ -325,7 +360,7 @@ function tick() {
 
 function onHit() {
   hp--;
-  playSfx(sfxHit);          // 扣血音效(含最后一次导致游戏结束的扣血)
+  playSfx(sfxHit, 'hit');   // 扣血音效(含最后一次导致游戏结束的扣血)
   if (hp >= 0 && hp < 3) heartPop[hp] = performance.now();
   shakeUntil = performance.now() + 300;
   flash = 1;
