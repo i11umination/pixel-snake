@@ -40,7 +40,7 @@ const H = GRID_END + DPAD_H;
 const CX = W / 2;                         // 画布水平中心(界面居中用)
 const START = {x: 13, y: 13};            // 出生点(地图中心)
 const SAFE_R = 5;                         // 初始布局: 出生点安全区半径(不生成墙)
-const TICK_MS = 130;                      // 每步间隔
+const TICK_MS = 170;                      // 蛇每步间隔(0.17秒/格)
 const WALL_COUNT = 6, WALL_MIN = 4, WALL_MAX = 15;
 
 const canvas = document.getElementById('game');
@@ -77,10 +77,10 @@ FOOD_SPRITE.onload = () => {
   gctx.globalCompositeOperation = 'source-over';
 };
 
-/* 绿色奶蛋: 15%概率出现, 0.3s/格随机游走(避开墙与蛇身), 4秒消失, 吃到回1血 */
+/* 绿色奶蛋: 15%概率出现, 0.4s/格随机游走(避开墙与蛇身), 6.5秒消失, 吃到回1血(满血则加长) */
 const GREEN_EGG_P = 0.15;            // 每次吃奶蛋的刷新概率
-const GREEN_EGG_MOVE_MS = 300;       // 游走速度(比蛇的130ms慢得多)
-const GREEN_EGG_LIFE_MS = 4000;      // 存活时间
+const GREEN_EGG_MOVE_MS = 400;       // 游走速度(0.4秒/格, 比蛇慢得多)
+const GREEN_EGG_LIFE_MS = 6500;      // 存活时间
 
 /* 背景音乐与音量 */
 const bgm = new Audio('bgm.mp3');
@@ -150,7 +150,8 @@ const dpad = isTouch ? {
 } : null;
 
 function pushDir(d) {                     // 方向输入(键盘/滑动/虚拟键共用)
-  if (mode === 'play' && queue.length < 3) queue.push(d.slice());
+  // 撞墙重生无敌期内忽略转向, 保证先沿原方向安全前进(前方3格无墙)
+  if (mode === 'play' && performance.now() > respawnUntil && queue.length < 3) queue.push(d.slice());
 }
 
 function resetSnake() {
@@ -285,8 +286,10 @@ function tick() {
   }
   snake.unshift([nx, ny]);
   if (wrapped) fx.push({ x: nx, y: ny, t0: performance.now() });   // 传送入口提示圈
-  if (eatingGreen) {                              // 吃绿色奶蛋: 回血+音效, 不加长
+  let grew = false;
+  if (eatingGreen) {                              // 吃绿色奶蛋: 回血+音效; 满血时改为加一格长度
     if (hp < 3) hp++;
+    else grew = true;
     playSfx(sfxHeal);
     fx.push({ x: nx, y: ny, t0: performance.now(), color: 'rgba(74,222,106,#A)' });
     greenEgg = null;
@@ -298,7 +301,7 @@ function tick() {
     regenWalls();          // 墙体重新布局(避开蛇身与前方3格)
     spawnFood();
     if (Math.random() < GREEN_EGG_P) spawnGreenEgg();   // 15%概率刷新绿色奶蛋
-  } else snake.pop();
+  } else if (!grew) snake.pop();
 }
 
 function onHit() {
@@ -312,6 +315,7 @@ function onHit() {
   const preLen = snake.length;
   const newLen = preLen > 30 ? 20 : Math.max(1, Math.floor(preLen * 0.65));
   snake = snake.slice(0, newLen);
+  queue = [];                // 清空排队的方向指令, 保持原方向前进, 防止撞向新生成的侧墙
   regenWalls();                            // 墙体重新布局(避开蛇身与前方3格)
   respawnUntil = performance.now() + 900;  // 重生无敌闪烁期
 }
