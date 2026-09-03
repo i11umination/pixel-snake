@@ -60,8 +60,22 @@ FOOD_SPRITE.onload = () => foodOk = true;
 /* 背景音乐与音量 */
 const bgm = new Audio('bgm.mp3');
 bgm.loop = true;
+const sfxHit = new Audio('hit.mp3');   // 扣血/游戏结束
+const sfxEat = [new Audio('eat1.mp3'), new Audio('eat2.mp3'), new Audio('eat3.mp3')];
 let vol = 1, volMuted = false, bgmStarted = false;
-function applyVol() { bgm.volume = volMuted ? 0 : vol; }
+function applyVol() {
+  const v = volMuted ? 0 : vol;
+  bgm.volume = v;
+  sfxHit.volume = v;
+  for (const a of sfxEat) a.volume = v;
+}
+function playSfx(a) {                   // 从头播放(允许连续触发)
+  try {
+    a.currentTime = 0;
+    const p = a.play();
+    if (p && p.catch) p.catch(() => {});
+  } catch (e) {}
+}
 function toggleMute() { volMuted = !volMuted; applyVol(); }
 function setVolFromX(x) {
   const b = curVolRects.bar;
@@ -193,6 +207,7 @@ function tick() {
   if (eating) {
     score++;
     fx.push({ x: nx, y: ny, t0: performance.now() });
+    playSfx(sfxEat[Math.floor(Math.random() * sfxEat.length)]);   // 随机三选一
     regenWalls();          // 墙体重新布局(避开蛇身与前方3格)
     spawnFood();
   } else snake.pop();
@@ -200,6 +215,7 @@ function tick() {
 
 function onHit() {
   hp--;
+  playSfx(sfxHit);          // 扣血音效(含最后一次导致游戏结束的扣血)
   if (hp >= 0 && hp < 3) heartPop[hp] = performance.now();
   shakeUntil = performance.now() + 300;
   flash = 1;
