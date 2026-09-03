@@ -56,6 +56,27 @@ let headOk = false, foodOk = false;
 HEAD_SPRITE.onload = () => headOk = true;
 FOOD_SPRITE.onload = () => foodOk = true;
 
+/* 背景音乐与音量 */
+const bgm = new Audio('bgm.mp3');
+bgm.loop = true;
+let vol = 1, volMuted = false, bgmStarted = false;
+function applyVol() { bgm.volume = volMuted ? 0 : vol; }
+function toggleMute() { volMuted = !volMuted; applyVol(); }
+function setVolFromX(x) {
+  const b = curVolRects.bar;
+  const t = Math.min(1, Math.max(0, (x - b.x) / b.w));
+  vol = Math.round(t * 4) / 4;      // 0 / 0.25 / 0.5 / 0.75 / 1
+  volMuted = false;
+  applyVol();
+}
+function ensureBgm() {               // 浏览器要求用户手势后才能播放, 在点击开始时启动
+  if (bgmStarted) return;
+  bgmStarted = true;
+  const p = bgm.play();
+  if (p && p.catch) p.catch(() => { bgmStarted = false; });
+}
+applyVol();
+
 const DIRS = { up: [0,-1], down: [0,1], left: [-1,0], right: [1,0] };
 const KEYMAP = { ArrowUp:'up', KeyW:'up', ArrowDown:'down', KeyS:'down',
                  ArrowLeft:'left', KeyA:'left', ArrowRight:'right', KeyD:'right' };
@@ -71,7 +92,7 @@ let acc = 0, lastT = 0, respawnUntil = 0;
 let shakeUntil = 0, flash = 0, fx = [];
 let wallFxT = -1e9;                        // 墙体最近一次重布局的时间(用于闪烁提示)
 let heartPop = [0, 0, 0];
-let hoverBtn = null;
+let hoverBtn = null, curVolRects = null;
 
 const pauseBtn = { x: 12, y: 8, w: 48, h: 48 };
 const startBtn = { x: 360 - 110, y: 372, w: 220, h: 60 };
@@ -145,6 +166,7 @@ function startGame() {
   mode = 'play'; hp = 3; score = 0; timeMs = 0; acc = 0;
   resetSnake(); respawnUntil = 0; fx = []; flash = 0; heartPop = [0,0,0];
   spawnFood();
+  ensureBgm();                 // 点击开始 = 用户手势, 此时启动背景音乐
 }
 function restartGame() { initWorld(); startGame(); }
 function pauseGame() { mode = 'pause'; }
@@ -217,6 +239,54 @@ function drawBtn(b, label, s, accent, hover) {
   ctx.textAlign = 'center';
   ctx.fillText(label, b.x + b.w / 2, b.y + b.h / 2 + 1);
   ctx.textAlign = 'left';
+}
+
+/* ================= 音量控件 ================= */
+function volRects(y) {
+  return {
+    label: { x: 188, y: y - 2, w: 48, h: 24 },
+    bar:   { x: 244, y: y + 4, w: 240, h: 14 },
+    mute:  { x: 492, y: y - 8, w: 40, h: 40 },
+  };
+}
+function drawSpeaker(b, muted) {
+  const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+  ctx.fillStyle = '#e8ecff';
+  ctx.fillRect(cx - 10, cy - 6, 4, 12);          // 喇叭箱体
+  ctx.fillRect(cx - 6, cy - 4, 3, 8);            // 锥形
+  ctx.fillRect(cx - 3, cy - 2, 2, 4);
+  if (!muted) {
+    if (vol >= 0.25) ctx.fillRect(cx + 3, cy - 3, 2, 6);   // 声波一
+    if (vol >= 0.75) ctx.fillRect(cx + 7, cy - 5, 2, 10);  // 声波二
+  } else {
+    ctx.fillStyle = '#ff5470';                    // 静音时画像素 X
+    for (const [dx, dy] of [[-6,-6],[-3,-3],[0,0],[3,3],[-6,3],[-3,0],[0,-3],[3,-6]]) {
+      ctx.fillRect(cx + dx, cy + dy, 3, 3);
+    }
+  }
+}
+function drawVolControls(y) {
+  const r = volRects(y);
+  curVolRects = r;
+  drawText('音量', r.label.x, r.label.y, 2, '#8b97b8');
+  const b = r.bar;
+  ctx.fillStyle = '#0d0f18'; ctx.fillRect(b.x - 2, b.y - 2, b.w + 4, b.h + 4);
+  ctx.fillStyle = '#38405c'; ctx.fillRect(b.x, b.y, b.w, b.h);
+  const fw = Math.round(b.w * (volMuted ? 0 : vol));
+  if (fw > 0) {
+    ctx.fillStyle = '#3f9e4e'; ctx.fillRect(b.x, b.y, fw, b.h);
+    ctx.fillStyle = '#7fd18a'; ctx.fillRect(b.x, b.y, fw, 3);
+  }
+  ctx.fillStyle = '#141828';
+  for (let i = 1; i < 4; i++) ctx.fillRect(b.x + b.w * i / 4 - 1, b.y, 2, b.h);
+  const kx = b.x + fw;                            // 档位旋钮
+  ctx.fillStyle = '#e8ecff';
+  ctx.fillRect(kx - 3, b.y - 4, 6, b.h + 8);
+  ctx.fillStyle = '#0d0f18';
+  ctx.fillRect(kx - 3, b.y - 4, 6, 2);
+  ctx.fillRect(kx - 3, b.y + b.h + 2, 6, 2);
+  drawBtnRect(r.mute, hoverBtn === 'mute');       // 静音键
+  drawSpeaker(r.mute, volMuted);
 }
 
 function isOutline(c, r) {
@@ -369,11 +439,13 @@ function drawStart() {
   drawText('方向键 / WASD 移动', 360, 486, 2, '#c8d2f0', 'center');
   drawText('吃到食物变长 · 墙体重新布局', 360, 514, 2, '#c8d2f0', 'center');
   drawText('撞墙损失生命 · 空格暂停游戏', 360, 542, 2, '#8b97b8', 'center');
+  drawVolControls(582);
 }
 function drawPauseOverlay() {
   ctx.fillStyle = 'rgba(10,12,20,0.72)'; ctx.fillRect(0, 0, W, H);
   drawTextShadow('已暂停', 360, 330, 4, '#ffd75e', 'center', true);
   drawText('按 空格 或 点击任意位置继续', 360, 396, 2, '#c8d2f0', 'center');
+  drawVolControls(468);
 }
 function drawOver() {
   ctx.fillStyle = 'rgba(10,12,20,0.85)'; ctx.fillRect(0, 0, W, H);
@@ -446,20 +518,42 @@ window.addEventListener('keydown', e => {
     else if (mode === 'over') restartGame();
   }
 });
+function inBarHit(p) {   // 音量条命中区域(上下各加 6px 方便点击)
+  const b = curVolRects.bar;
+  return p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y - 6 && p.y <= b.y + b.h + 6;
+}
 canvas.addEventListener('mousemove', e => {
   const p = getPos(e);
   hoverBtn = null;
-  if (mode === 'start' && inRect(p, startBtn)) hoverBtn = 'start';
-  else if (mode === 'over' && inRect(p, restartBtn)) hoverBtn = 'restart';
-  else if ((mode === 'play' || mode === 'pause') && inRect(p, pauseBtn)) hoverBtn = 'pause';
+  if (mode === 'start') {
+    if (inRect(p, startBtn)) hoverBtn = 'start';
+    else if (curVolRects && inRect(p, curVolRects.mute)) hoverBtn = 'mute';
+  } else if (mode === 'over') {
+    if (inRect(p, restartBtn)) hoverBtn = 'restart';
+  } else if (mode === 'play') {
+    if (inRect(p, pauseBtn)) hoverBtn = 'pause';
+  } else if (mode === 'pause') {
+    if (inRect(p, pauseBtn)) hoverBtn = 'pause';
+    else if (curVolRects && inRect(p, curVolRects.mute)) hoverBtn = 'mute';
+  }
   canvas.style.cursor = hoverBtn ? 'pointer' : 'default';
 });
 canvas.addEventListener('click', e => {
   const p = getPos(e);
-  if (mode === 'start') { if (inRect(p, startBtn)) startGame(); }
-  else if (mode === 'over') { if (inRect(p, restartBtn)) restartGame(); }
-  else if (mode === 'play') { if (inRect(p, pauseBtn)) pauseGame(); }
-  else if (mode === 'pause') resumeGame();
+  const vr = curVolRects;
+  if (mode === 'start') {
+    if (vr && inRect(p, vr.mute)) toggleMute();
+    else if (vr && inBarHit(p)) setVolFromX(p.x);
+    else if (inRect(p, startBtn)) startGame();
+  } else if (mode === 'over') {
+    if (inRect(p, restartBtn)) restartGame();
+  } else if (mode === 'play') {
+    if (inRect(p, pauseBtn)) pauseGame();
+  } else if (mode === 'pause') {
+    if (vr && inRect(p, vr.mute)) toggleMute();
+    else if (vr && inBarHit(p)) setVolFromX(p.x);
+    else resumeGame();
+  }
 });
 
 /* ================= 启动 ================= */
