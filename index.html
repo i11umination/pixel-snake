@@ -178,8 +178,9 @@ function regenWalls() {
   if (food) forbid.add(food.x + ',' + food.y);
   const [hx, hy] = snake[0];
   for (let i = 1; i <= 3; i++) {
-    const ax = hx + dir[0] * i, ay = hy + dir[1] * i;
-    if (ax >= 0 && ay >= 0 && ax < GRID && ay < GRID) forbid.add(ax + ',' + ay);
+    // 前方3格也按传送规则换算(出界绕到对侧)
+    const ax = (hx + dir[0] * i + GRID) % GRID, ay = (hy + dir[1] * i + GRID) % GRID;
+    forbid.add(ax + ',' + ay);
   }
   genWalls(forbid);
   wallFxT = performance.now();
@@ -216,14 +217,21 @@ function tick() {
     const d = queue.shift();
     if (!(d[0] + dir[0] === 0 && d[1] + dir[1] === 0)) { dir = d; break; }
   }
-  const nx = snake[0][0] + dir[0], ny = snake[0][1] + dir[1];
+  let nx = snake[0][0] + dir[0], ny = snake[0][1] + dir[1];
+  // 地图边缘传送: 出界后从对侧进入(下出上进/左出右进)
+  let wrapped = false;
+  if (nx < 0) { nx = GRID - 1; wrapped = true; }
+  else if (nx >= GRID) { nx = 0; wrapped = true; }
+  if (ny < 0) { ny = GRID - 1; wrapped = true; }
+  else if (ny >= GRID) { ny = 0; wrapped = true; }
   const eating = food && nx === food.x && ny === food.y;
-  if (nx < 0 || ny < 0 || nx >= GRID || ny >= GRID || walls.has(nx + ',' + ny)) { onHit(); return; }
+  if (walls.has(nx + ',' + ny)) { onHit(); return; }
   const bodyLen = eating ? snake.length : snake.length - 1;
   for (let i = 0; i < bodyLen; i++) {
     if (snake[i][0] === nx && snake[i][1] === ny) { onHit(); return; }
   }
   snake.unshift([nx, ny]);
+  if (wrapped) fx.push({ x: nx, y: ny, t0: performance.now() });   // 传送入口提示圈
   if (eating) {
     score++;
     fx.push({ x: nx, y: ny, t0: performance.now() });
@@ -512,8 +520,8 @@ function drawStart() {
   drawTextShadow('像素贪吃蛇', CX, 268, 4, '#ffd75e', 'center', true);
   drawBtn(startBtn, '开始游戏', 3, true, hoverBtn === 'start');
   drawText('方向键 / WASD 移动', CX, 486, 2, '#c8d2f0', 'center');
-  drawText('吃到食物变长 · 墙体重新布局', CX, 514, 2, '#c8d2f0', 'center');
-  drawText('撞墙损失生命 · 空格暂停游戏', CX, 542, 2, '#8b97b8', 'center');
+  drawText('吃到食物变长 · 撞墙损失生命', CX, 514, 2, '#c8d2f0', 'center');
+  drawText('地图边缘传送 · 空格暂停游戏', CX, 542, 2, '#8b97b8', 'center');
   drawVolControls(582);
 }
 function drawPauseOverlay() {
