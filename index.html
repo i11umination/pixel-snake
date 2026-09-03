@@ -41,6 +41,7 @@ const CX = W / 2;                         // 画布水平中心(界面居中用)
 const START = {x: 13, y: 13};            // 出生点(地图中心)
 const SAFE_R = 5;                         // 初始布局: 出生点安全区半径(不生成墙)
 const TICK_MS = 170;                      // 蛇每步间隔(0.17秒/格)
+const TICK_BOOST_MS = 120;                // 加速: 0.12秒/格(长按当前方向键/手机加速键)
 const WALL_COUNT = 6, WALL_MIN = 4, WALL_MAX = 15;
 
 const canvas = document.getElementById('game');
@@ -137,21 +138,38 @@ let wallFxT = -1e9;                        // 墙体最近一次重布局的时�
 let heartPop = [0, 0, 0];
 let hoverBtn = null, curVolRects = null;
 let ptrDown = null, dpadPressed = null, suppressClickUntil = 0, resumeOnUp = false;
+const keysDown = new Set();               // 键盘按下状态(电脑端加速判定)
+let boostHeld = false;                    // 手机端加速键按下状态
 
 const pauseBtn = { x: 8, y: 0, w: 64, h: 64 };          // 放大触控区
 const startBtn = { x: CX - 130, y: 372, w: 260, h: 72 };
 const restartBtn = { x: CX - 130, y: 508, w: 260, h: 72 };
-// 触屏虚拟方向键: 地图下方独立区域内, 标准十字(上居中, 下排左/下/右, 键间留8px缝)
+// 触屏虚拟方向键: 地图下方独立区域右侧, 标准十字形(上居中, 下排左/下/右)
 const dpad = isTouch ? {
-  up:    { x: CX - 38,  y: GRID_END + 10, w: 76, h: 76 },
-  down:  { x: CX - 38,  y: GRID_END + 90, w: 76, h: 76 },
-  left:  { x: CX - 122, y: GRID_END + 90, w: 76, h: 76 },
-  right: { x: CX + 46,  y: GRID_END + 90, w: 76, h: 76 },
+  up:    { x: W - 178, y: GRID_END + 10, w: 76, h: 76 },
+  down:  { x: W - 178, y: GRID_END + 90, w: 76, h: 76 },
+  left:  { x: W - 262, y: GRID_END + 90, w: 76, h: 76 },
+  right: { x: W - 94,  y: GRID_END + 90, w: 76, h: 76 },
 } : null;
+// 触屏加速键: 方向键区左侧, 长按加速
+const boostBtn = isTouch ? { x: 40, y: GRID_END + 40, w: 96, h: 96 } : null;
 
 function pushDir(d) {                     // 方向输入(键盘/滑动/虚拟键共用)
   // 撞墙重生无敌期内忽略转向, 保证先沿原方向安全前进(前方3格无墙)
   if (mode === 'play' && performance.now() > respawnUntil && queue.length < 3) queue.push(d.slice());
+}
+function isBoosting() {                   // 电脑: 长按当前行进方向键; 手机: 按住加速键
+  if (mode !== 'play') return false;
+  if (isTouch) return boostHeld;
+  for (const n in DIRS) {
+    if (DIRS[n][0] === dir[0] && DIRS[n][1] === dir[1]) {
+      for (const code in KEYMAP) {
+        if (KEYMAP[code] === n && keysDown.has(code)) return true;
+      }
+      return false;
+    }
+  }
+  return false;
 }
 
 function resetSnake() {
@@ -420,6 +438,22 @@ function drawArrow(b, dirName) {
   ctx.restore();
 }
 function drawDPad() {
+  if (boostBtn) {                          // 左侧加速键(闪电图标)
+    const b = boostBtn;
+    ctx.fillStyle = boostHeld ? 'rgba(255,215,94,0.5)' : 'rgba(24,28,46,0.38)';
+    ctx.fillRect(b.x, b.y, b.w, b.h);
+    ctx.fillStyle = boostHeld ? 'rgba(255,231,140,0.9)' : 'rgba(139,151,184,0.8)';
+    ctx.fillRect(b.x, b.y, b.w, 4); ctx.fillRect(b.x, b.y, 4, b.h);
+    ctx.fillStyle = boostHeld ? 'rgba(154,122,26,0.9)' : 'rgba(13,15,24,0.8)';
+    ctx.fillRect(b.x, b.y + b.h - 4, b.w, 4); ctx.fillRect(b.x + b.w - 4, b.y, 4, b.h);
+    const cx = b.x + b.w / 2, cy = b.y + 36;
+    ctx.fillStyle = boostHeld ? '#fff3c4' : 'rgba(232,236,255,0.9)';
+    ctx.fillRect(cx + 2, cy - 20, 8, 8);
+    ctx.fillRect(cx - 6, cy - 12, 12, 8);
+    ctx.fillRect(cx, cy - 4, 8, 8);
+    ctx.fillRect(cx - 8, cy + 4, 14, 8);
+    drawText('加速', b.x + b.w / 2 - 24, b.y + 60, 2, boostHeld ? '#fff3c4' : '#c8d2f0');
+  }
   for (const name of ['up', 'down', 'left', 'right']) {
     const b = dpad[name];
     ctx.fillStyle = dpadPressed === name ? 'rgba(56,64,92,0.55)' : 'rgba(24,28,46,0.38)';
@@ -522,12 +556,14 @@ function drawWalls(t) {
 function drawSnake(t) {
   let alpha = 1;
   if (t < respawnUntil) alpha = ((t / 120) | 0) % 2 === 0 ? 0.85 : 0.25;
+  const boosting = isBoosting();         // 加速时蛇身更亮
   ctx.save();
   ctx.globalAlpha = alpha;
   for (let i = snake.length - 1; i >= 1; i--) {
     const px = snake[i][0] * CELL, py = HUD + snake[i][1] * CELL;
     const alt = (snake[i][0] + snake[i][1]) % 2 === 0;
-    ctx.fillStyle = alt ? '#f6d43a' : '#eac629';
+    ctx.fillStyle = boosting ? (alt ? '#ffe066' : '#f8dc4a')
+                             : (alt ? '#f6d43a' : '#eac629');
     ctx.fillRect(px + 1, py + 1, CELL - 2, CELL - 2);
     ctx.fillStyle = alt ? '#fdf0a6' : '#f8e58a';
     ctx.fillRect(px + 1, py + 1, CELL - 2, 3);
@@ -640,8 +676,9 @@ function frame(t) {
   if (mode === 'play') {
     timeMs += dt;
     if (t > respawnUntil) {
+      const tickMs = isBoosting() ? TICK_BOOST_MS : TICK_MS;
       acc += dt;
-      while (acc >= TICK_MS) { acc -= TICK_MS; tick(); if (mode !== 'play') break; }
+      while (acc >= tickMs) { acc -= tickMs; tick(); if (mode !== 'play') break; }
     }
     if (greenEgg) {                 // 绿色奶蛋: 4秒消失 / 0.3秒游走一格
       if (t - greenEgg.spawnT >= GREEN_EGG_LIFE_MS) greenEgg = null;
@@ -689,6 +726,7 @@ function getPos(e) {
 function inRect(p, b) { return p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h; }
 
 window.addEventListener('keydown', e => {
+  keysDown.add(e.code);                   // 记录按键状态(加速判定用)
   if (e.code in KEYMAP) {
     e.preventDefault();
     pushDir(DIRS[KEYMAP[e.code]]);
@@ -701,6 +739,8 @@ window.addEventListener('keydown', e => {
     else if (mode === 'over') restartGame();
   }
 });
+window.addEventListener('keyup', e => { keysDown.delete(e.code); });
+window.addEventListener('blur', () => { keysDown.clear(); boostHeld = false; });
 function inBarHit(p) {   // 音量条命中区域(上下各加 6px 方便点击)
   const b = curVolRects.bar;
   return p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y - 6 && p.y <= b.y + b.h + 6;
@@ -751,6 +791,7 @@ function handleTap(p) {   // 按钮在按下瞬间响应, 不依赖 click 合成
     if (inRect(p, restartBtn)) { suppressClickUntil = Date.now() + 600; restartGame(); }
   } else if (mode === 'play') {
     if (inRect(p, pauseBtn)) { suppressClickUntil = Date.now() + 600; pauseGame(); }
+    if (isTouch && boostBtn && inRect(p, boostBtn)) boostHeld = true;   // 按住加速
     if (isTouch && dpad) {
       for (const name of ['up', 'down', 'left', 'right']) {
         if (inRect(p, dpad[name])) { pushDir(DIRS[name]); dpadPressed = name; }
@@ -765,6 +806,7 @@ function handleTap(p) {   // 按钮在按下瞬间响应, 不依赖 click 合成
 }
 function endGesture(x, y) {
   dpadPressed = null;
+  if (isTouch) boostHeld = false;        // 松开加速键
   if (!ptrDown) return;
   const dx = x - ptrDown.x, dy = y - ptrDown.y;
   ptrDown = null;
@@ -791,7 +833,7 @@ if (window.PointerEvent) {
     if (!e.isPrimary) return;
     endGesture(e.clientX, e.clientY);
   });
-  canvas.addEventListener('pointercancel', () => { ptrDown = null; dpadPressed = null; resumeOnUp = false; });
+  canvas.addEventListener('pointercancel', () => { ptrDown = null; dpadPressed = null; resumeOnUp = false; boostHeld = false; });
 } else {
   // 老旧浏览器回退: 触摸事件
   canvas.addEventListener('touchstart', e => {
@@ -804,7 +846,7 @@ if (window.PointerEvent) {
     const t = e.changedTouches[0];
     endGesture(t.clientX, t.clientY);
   });
-  canvas.addEventListener('touchcancel', () => { ptrDown = null; dpadPressed = null; resumeOnUp = false; });
+  canvas.addEventListener('touchcancel', () => { ptrDown = null; dpadPressed = null; resumeOnUp = false; boostHeld = false; });
 }
 
 /* ================= 启动 ================= */
