@@ -41,7 +41,7 @@ const CX = W / 2;                         // 画布水平中心(界面居中用)
 const START = {x: 13, y: 13};            // 出生点(地图中心)
 const SAFE_R = 5;                         // 初始布局: 出生点安全区半径(不生成墙)
 const TICK_MS = 170;                      // 蛇每步间隔(0.17秒/格)
-const TICK_BOOST_MS = 120;                // 加速: 0.12秒/格(长按当前方向键/手机加速键)
+const TICK_BOOST_MS = 100;                // 加速: 0.1秒/格(长按当前方向键/手机加速键)
 const WALL_COUNT = 6, WALL_MIN = 4, WALL_MAX = 15;
 
 const canvas = document.getElementById('game');
