@@ -27,10 +27,11 @@
 <script>
 'use strict';
 /* ================= 常量与资源 ================= */
-const GRID = 40, CELL = 18, HUD = 64;
+const GRID = 27, CELL = 26, HUD = 64;
 const W = GRID * CELL, H = HUD + GRID * CELL;
-const START = {x: 20, y: 20};            // 出生点
-const SAFE_R = 5;                         // 出生点安全区半径(不生成墙)
+const CX = W / 2;                         // 画布水平中心(界面居中用)
+const START = {x: 13, y: 13};            // 出生点(地图中心)
+const SAFE_R = 5;                         // 初始布局: 出生点安全区半径(不生成墙)
 const TICK_MS = 130;                      // 每步间隔
 const WALL_COUNT = 6, WALL_MIN = 4, WALL_MAX = 15;
 
@@ -50,8 +51,8 @@ function fitCanvas() {
 window.addEventListener('resize', fitCanvas);
 fitCanvas();
 
-const HEAD_SPRITE = new Image(); HEAD_SPRITE.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABIAAAASCAYAAABWzo5XAAABOklEQVR4nGNkIAC+f7r2/82jk3C+rE4iIzZ1WAVh4PGV+f//fjmLIc7MY4xhIBMhQ5h5jBk+P3uDIgcSB7kUWYwFnyEgA+692A4RfPGKQUkCYe+kyTEMBA2CGQICSkiaeaVE4Gx7638MfUvP4TYI5JoPt3ZiGP6eyY7h3rkDDHevfwHzlTV5cLsIV+DqBq1gZGBYAeerCjD+n7tgKgMDwyq4GBMhQ3ABUycHFD4TuiHoMQQCfbleKDHU0xbKwMmnhRr9hFxy78U/BldHPobL6yLAhhVFG/0HRQBIH7I6xgcnclAEsLno3rW7CI6QIjgmQTGInDAZYTaBAEgSm0HYACwpwAxDSdnEGoIMQMEC8ibWBEkK+Ay2fCcDy9mDJxkERUUYlLSUsSoUUHPHaQjINSD9xvbmlLpnMAMADMSaDeVMURMAAAAASUVORK5CYII=';
-const FOOD_SPRITE = new Image(); FOOD_SPRITE.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABIAAAASCAYAAABWzo5XAAABj0lEQVR4nI1SP0vDQBx916SlwbT4B4QuDh10cBFxEBxEnOzg5Cfwg4iLju6C+AkcxKGriAgdinRw0cFJqA7F0kYSakvlXXPp5Zq0Pkjvcr9fXt+93xMw0Hy9Hua6VbnvFSpyLa0dC8xA1NCqHw1nNS9t3aQSCl3Bf9ArVBIVigkl/nsyg1OeSmbz567eQO3Nw/aqi8P14gTH6ZMPv9fHzvKLrOdQlV7qZBkqeG5ncXnxKbgi8BMFXZ3cCv6Zqpt2iNbj5pDF6n0Hlb0ikHfGV+E1Ax8/3x84q83h/GBhVGNPeFU1gIho8NtG4Hl4aMSv1l9xsL/4hbzryncrOx8jU0TSIx27Gx3jpINp4LBINiLKO7C4uJCqkmApJQr0KnRhQhGbSTaTRIEeOmU5QTvtI3qWSmCo4gQz0WE4LRLwMfcxqMlqAc7oiTVBRZauigQ6CRHmSgZSQV6nUEolBj9ST9ivVNlmkgfdZvw9bKYy07doH/jjqele6Iab9STP2G8z/jqYYHWm0sxscZ+WMcDDH9uFum3CeJ2LAAAAAElFTkSuQmCC';
+const HEAD_SPRITE = new Image(); HEAD_SPRITE.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABoAAAAaCAYAAACpSkzOAAABxElEQVR4nGNgIBP8/nz5PwgTq56RFMMfXpqCYfD/bzcYGLk0wGx5vRxGii0CWQIyFB9g5NLAaRkTqZaADHv3XgarOpAabL4G6yPFkquHzjD85VGAyylJItzJIynE8OX5OzCNzWcEfQSyBGQACMurKjEwf3mAV72CxRTGi0eOYIizEPLN57vHUMRAliEDkA9AAOabTdMisAYdTh/hCmsY0AlcxgjCl869AVsCsww5OAlaBMsfuFIZyAIY2y9rBeOL704MIFxUuZPh3vN/DDKKBoSDDmTJs/sH4XFDDHCJSgFbbCjNA3agro03AwNDBW4fkWMJMjj/9AsjKOhYeXUxUjMTcpzALCEXGErz/P/FoYdVjgk54om15Mr6qP9lER7/YUEFA3Pn1DCw/biE3SJSLXl4+x6YjgsXYhDlZWcAWeimIfz/3PaO/7gsAQHGBydysCZjfHEEswyUp0CpDASQkzWvshVxJQOhhAArhkAWYispYGUecjXCgm4oLKfjAxDXo5YQ2Cx7dh+Pj8hJ1rjMAFkGijuiqwlSAQ9SqAgJPgEHIwstLfkCD51jDCzIKYgYAMuQwtI8WOWRswnIbGLNHQUjCAAAeEf8kaL1cVAAAAAASUVORK5CYII=';
+const FOOD_SPRITE = new Image(); FOOD_SPRITE.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABoAAAAaCAYAAACpSkzOAAABm0lEQVR4nGNkwAG+fTzx/9OryxjifGK6DFz8FowMJAIUDS9uz/4Potk+7iSo8Re/O0mWMiJbQowF2CyUUE0laBkjKIh+3O5hoBQImazBaxnjuzMh4OBCB/9+3MVrMBOHMkmWMSFzVl+8CMaELEFWiwxwORrFot+vTjMcvfqN4d4/E4a1N7/gtaTpxA+GAMlfYLUwh8Ech8syJpgCca+HjIv6njI+v36IoG9g6jtTlzNefc/C8PfTOzBGT71YfRRXJA2XDFbnwWkByMAPzz7B+chsmKOxpV7GN0cM/8MMmL3/EUOqoxxYgplPCCXSQYYgu3r2/kdgGqYepgc5kSAnDhSL0MHtR6oofFW52zh9is0y5DzGwoAHEGMwPoAchEy4fEMu+PvpHUr2gCUMJuT4oCVgooWhf5FCCBZ8cIuo7at/aMFHNR8xozkU3VcoFpHrK2aoPnT9oGINBljQMyVIMamp8C8R6plAliAXiuQkdWY+IThGBzBfwQtVbJqRaXzgL7RQxedIxpfb5P/jMoyaGZmF2gbSNcMyjAiLAPLE2v48BGTvAAAAAElFTkSuQmCC';
 let headOk = false, foodOk = false;
 HEAD_SPRITE.onload = () => headOk = true;
 FOOD_SPRITE.onload = () => foodOk = true;
@@ -95,8 +96,8 @@ let heartPop = [0, 0, 0];
 let hoverBtn = null, curVolRects = null;
 
 const pauseBtn = { x: 12, y: 8, w: 48, h: 48 };
-const startBtn = { x: 360 - 110, y: 372, w: 220, h: 60 };
-const restartBtn = { x: 360 - 110, y: 508, w: 220, h: 60 };
+const startBtn = { x: CX - 110, y: 372, w: 220, h: 60 };
+const restartBtn = { x: CX - 110, y: 508, w: 220, h: 60 };
 
 function resetSnake() {
   snake = [[START.x, START.y], [START.x - 1, START.y], [START.x - 2, START.y]];
@@ -106,10 +107,12 @@ function resetSnake() {
 function genWalls(forbidden) {
   walls = new Set();
   const forbid = forbidden ? new Set(forbidden) : new Set();
-  // 出生点安全区始终保留, 保证重生时不会被墙堵住
-  for (let y = Math.max(0, START.y - SAFE_R); y <= Math.min(GRID - 1, START.y + SAFE_R); y++) {
-    for (let x = Math.max(0, START.x - SAFE_R); x <= Math.min(GRID - 1, START.x + SAFE_R); x++) {
-      forbid.add(x + ',' + y);
+  // 仅初始布局(未传禁放区)时保留出生点安全区; 重布局时以"蛇身+前方3格"为准
+  if (!forbidden) {
+    for (let y = Math.max(0, START.y - SAFE_R); y <= Math.min(GRID - 1, START.y + SAFE_R); y++) {
+      for (let x = Math.max(0, START.x - SAFE_R); x <= Math.min(GRID - 1, START.x + SAFE_R); x++) {
+        forbid.add(x + ',' + y);
+      }
     }
   }
   for (let i = 0; i < WALL_COUNT; i++) {
@@ -135,9 +138,10 @@ function genWalls(forbidden) {
 }
 
 function regenWalls() {
-  // 吃食物时重布局: 避开整条蛇身 + 当前行进方向的前 3 格
+  // 吃食物/重生时重布局: 避开整条蛇身 + 当前行进方向的前 3 格 + 食物所在格
   const forbid = new Set();
   for (const s of snake) forbid.add(s[0] + ',' + s[1]);
+  if (food) forbid.add(food.x + ',' + food.y);
   const [hx, hy] = snake[0];
   for (let i = 1; i <= 3; i++) {
     const ax = hx + dir[0] * i, ay = hy + dir[1] * i;
@@ -200,8 +204,12 @@ function onHit() {
   shakeUntil = performance.now() + 300;
   flash = 1;
   if (hp <= 0) { mode = 'over'; return; }
-  resetSnake();
-  respawnUntil = performance.now() + 900;   // 重生无敌闪烁期
+  // 原地重生: 长度变为损失前的 65%(向下取整, 最少保留 1 格), 超过 30 则固定为 20
+  const preLen = snake.length;
+  const newLen = preLen > 30 ? 20 : Math.max(1, Math.floor(preLen * 0.65));
+  snake = snake.slice(0, newLen);
+  regenWalls();                            // 墙体重新布局(避开蛇身与前方3格)
+  respawnUntil = performance.now() + 900;  // 重生无敌闪烁期
 }
 
 /* ================= 绘制工具(文字使用系统字体, 清晰优先) ================= */
@@ -243,10 +251,11 @@ function drawBtn(b, label, s, accent, hover) {
 
 /* ================= 音量控件 ================= */
 function volRects(y) {
+  const x0 = CX - 172;
   return {
-    label: { x: 188, y: y - 2, w: 48, h: 24 },
-    bar:   { x: 244, y: y + 4, w: 240, h: 14 },
-    mute:  { x: 492, y: y - 8, w: 40, h: 40 },
+    label: { x: x0, y: y - 2, w: 48, h: 24 },
+    bar:   { x: x0 + 56, y: y + 4, w: 240, h: 14 },
+    mute:  { x: x0 + 304, y: y - 8, w: 40, h: 40 },
   };
 }
 function drawSpeaker(b, muted) {
@@ -400,15 +409,19 @@ function drawSnake(t) {
 }
 
 function fallbackHead() {
-  ctx.fillStyle = '#f6d43a'; ctx.fillRect(-8, -8, 16, 16);
-  ctx.fillStyle = '#9a7a1a'; ctx.fillRect(-8, 6, 16, 2);
-  ctx.fillStyle = '#e8ecff'; ctx.fillRect(-6, -4, 4, 4); ctx.fillRect(2, -4, 4, 4);
-  ctx.fillStyle = '#141828'; ctx.fillRect(-5, -3, 2, 2); ctx.fillRect(3, -3, 2, 2);
+  const h = CELL / 2;
+  ctx.fillStyle = '#f6d43a'; ctx.fillRect(-h + 1, -h + 1, CELL - 2, CELL - 2);
+  ctx.fillStyle = '#9a7a1a'; ctx.fillRect(-h + 1, h - 3, CELL - 2, 2);
+  ctx.fillStyle = '#e8ecff';
+  ctx.fillRect(-h + 3, -h + 5, 5, 5); ctx.fillRect(h - 8, -h + 5, 5, 5);
+  ctx.fillStyle = '#141828';
+  ctx.fillRect(-h + 4, -h + 6, 3, 3); ctx.fillRect(h - 7, -h + 6, 3, 3);
 }
 function fallbackFood(px, py) {
-  ctx.fillStyle = '#ff5470'; ctx.fillRect(px + 2, py + 3, 14, 13);
-  ctx.fillStyle = '#ffb8c4'; ctx.fillRect(px + 3, py + 4, 3, 3);
-  ctx.fillStyle = '#3f9e4e'; ctx.fillRect(px + 7, py, 4, 4);
+  const c = CELL;
+  ctx.fillStyle = '#ff5470'; ctx.fillRect(px + 3, py + 4, c - 5, c - 7);
+  ctx.fillStyle = '#ffb8c4'; ctx.fillRect(px + 5, py + 6, 4, 4);
+  ctx.fillStyle = '#3f9e4e'; ctx.fillRect(px + c / 2 - 3, py, 6, 6);
 }
 
 function drawFood(t) {
@@ -432,27 +445,27 @@ function drawFx(t) {
 
 function drawStart() {
   ctx.fillStyle = 'rgba(10,12,20,0.88)'; ctx.fillRect(0, 0, W, H);
-  if (headOk) ctx.drawImage(HEAD_SPRITE, 360 - 72, 96, 144, 144);
-  else { ctx.save(); ctx.translate(360, 168); ctx.scale(8, 8); fallbackHead(); ctx.restore(); }
-  drawTextShadow('像素贪吃蛇', 360, 268, 4, '#ffd75e', 'center', true);
+  if (headOk) ctx.drawImage(HEAD_SPRITE, CX - 78, 84, 156, 156);
+  else { ctx.save(); ctx.translate(CX, 162); ctx.scale(6, 6); fallbackHead(); ctx.restore(); }
+  drawTextShadow('像素贪吃蛇', CX, 268, 4, '#ffd75e', 'center', true);
   drawBtn(startBtn, '开始游戏', 3, true, hoverBtn === 'start');
-  drawText('方向键 / WASD 移动', 360, 486, 2, '#c8d2f0', 'center');
-  drawText('吃到食物变长 · 墙体重新布局', 360, 514, 2, '#c8d2f0', 'center');
-  drawText('撞墙损失生命 · 空格暂停游戏', 360, 542, 2, '#8b97b8', 'center');
+  drawText('方向键 / WASD 移动', CX, 486, 2, '#c8d2f0', 'center');
+  drawText('吃到食物变长 · 墙体重新布局', CX, 514, 2, '#c8d2f0', 'center');
+  drawText('撞墙损失生命 · 空格暂停游戏', CX, 542, 2, '#8b97b8', 'center');
   drawVolControls(582);
 }
 function drawPauseOverlay() {
   ctx.fillStyle = 'rgba(10,12,20,0.72)'; ctx.fillRect(0, 0, W, H);
-  drawTextShadow('已暂停', 360, 330, 4, '#ffd75e', 'center', true);
-  drawText('按 空格 或 点击任意位置继续', 360, 396, 2, '#c8d2f0', 'center');
+  drawTextShadow('已暂停', CX, 330, 4, '#ffd75e', 'center', true);
+  drawText('按 空格 或 点击任意位置继续', CX, 396, 2, '#c8d2f0', 'center');
   drawVolControls(468);
 }
 function drawOver() {
   ctx.fillStyle = 'rgba(10,12,20,0.85)'; ctx.fillRect(0, 0, W, H);
-  drawTextShadow('游戏结束', 360, 296, 4, '#ff5470', 'center', true);
-  drawText('得分 ' + score, 360, 372, 2, '#e8ecff', 'center');
-  drawText('时间 ' + fmtTime(timeMs), 360, 400, 2, '#e8ecff', 'center');
-  drawText('长度 ' + snake.length, 360, 428, 2, '#e8ecff', 'center');
+  drawTextShadow('游戏结束', CX, 296, 4, '#ff5470', 'center', true);
+  drawText('得分 ' + score, CX, 372, 2, '#e8ecff', 'center');
+  drawText('时间 ' + fmtTime(timeMs), CX, 400, 2, '#e8ecff', 'center');
+  drawText('长度 ' + snake.length, CX, 428, 2, '#e8ecff', 'center');
   drawBtn(restartBtn, '重新开始', 3, true, hoverBtn === 'restart');
 }
 
