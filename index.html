@@ -305,7 +305,8 @@ function tick() {
   snake.unshift([nx, ny]);
   if (wrapped) fx.push({ x: nx, y: ny, t0: performance.now() });   // 传送入口提示圈
   let grew = false;
-  if (eatingGreen) {                              // 吃绿色奶蛋: 回血+音效; 满血时改为加一格长度
+  if (eatingGreen) {                              // 吃绿色奶蛋: +3分, 回血+音效; 满血时改为加一格长度
+    score += 3;
     if (hp < 3) hp++;
     else grew = true;
     playSfx(sfxHeal);
