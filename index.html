@@ -2,6 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>像素贪吃蛇</title>
 <style>
   html, body { margin: 0; padding: 0; }
@@ -13,12 +14,15 @@
     min-height: 100vh; padding: 24px; box-sizing: border-box;
     font-family: 'Courier New', monospace;
     user-select: none;
+    overscroll-behavior: none;   /* 手机上禁止下拉刷新/回弹 */
   }
   canvas {
     image-rendering: pixelated;
     image-rendering: crisp-edges;
     display: block;
     box-shadow: 0 0 0 4px #0d0f18, 0 0 0 8px #3a4163, 0 14px 48px rgba(0,0,0,.6);
+    touch-action: none;          /* 触屏手势交给游戏处理, 禁止浏览器缩放/滚动 */
+    -webkit-tap-highlight-color: transparent;
   }
 </style>
 </head>
@@ -95,6 +99,7 @@ applyVol();
 const DIRS = { up: [0,-1], down: [0,1], left: [-1,0], right: [1,0] };
 const KEYMAP = { ArrowUp:'up', KeyW:'up', ArrowDown:'down', KeyS:'down',
                  ArrowLeft:'left', KeyA:'left', ArrowRight:'right', KeyD:'right' };
+const isTouch = ('ontouchstart' in window) || (navigator && navigator.maxTouchPoints > 0);
 
 /* 像素爱心 7x6 点阵 */
 const HEART = ['0110110','1111111','1111111','0111110','0011100','0001000'];
@@ -108,10 +113,22 @@ let shakeUntil = 0, flash = 0, fx = [];
 let wallFxT = -1e9;                        // 墙体最近一次重布局的时间(用于闪烁提示)
 let heartPop = [0, 0, 0];
 let hoverBtn = null, curVolRects = null;
+let touchStart = null, dpadPressed = null, suppressClickUntil = 0;
 
-const pauseBtn = { x: 12, y: 8, w: 48, h: 48 };
-const startBtn = { x: CX - 110, y: 372, w: 220, h: 60 };
-const restartBtn = { x: CX - 110, y: 508, w: 220, h: 60 };
+const pauseBtn = { x: 8, y: 0, w: 64, h: 64 };          // 放大触控区
+const startBtn = { x: CX - 130, y: 372, w: 260, h: 72 };
+const restartBtn = { x: CX - 130, y: 508, w: 260, h: 72 };
+// 触屏虚拟方向键(左下角十字布局, 中心 x=160)
+const dpad = isTouch ? {
+  up:    { x: 124, y: 492, w: 72, h: 72 },
+  down:  { x: 124, y: 636, w: 72, h: 72 },
+  left:  { x: 52,  y: 600, w: 72, h: 72 },
+  right: { x: 196, y: 600, w: 72, h: 72 },
+} : null;
+
+function pushDir(d) {                     // 方向输入(键盘/滑动/虚拟键共用)
+  if (mode === 'play' && queue.length < 3) queue.push(d.slice());
+}
 
 function resetSnake() {
   snake = [[START.x, START.y], [START.x - 1, START.y], [START.x - 2, START.y]];
@@ -314,6 +331,32 @@ function drawVolControls(y) {
   drawSpeaker(r.mute, volMuted);
 }
 
+/* ================= 触屏虚拟方向键 ================= */
+function drawArrow(b, dirName) {
+  const rot = { up: 0, right: Math.PI / 2, down: Math.PI, left: -Math.PI / 2 }[dirName];
+  ctx.save();
+  ctx.translate(b.x + b.w / 2, b.y + b.h / 2);
+  ctx.rotate(rot);
+  ctx.fillStyle = 'rgba(232,236,255,0.9)';
+  ctx.fillRect(-9, -14, 18, 7);
+  ctx.fillRect(-18, -7, 36, 7);
+  ctx.fillRect(-9, 0, 18, 7);
+  ctx.fillRect(-9, 7, 18, 7);
+  ctx.restore();
+}
+function drawDPad() {
+  for (const name of ['up', 'down', 'left', 'right']) {
+    const b = dpad[name];
+    ctx.fillStyle = dpadPressed === name ? 'rgba(56,64,92,0.55)' : 'rgba(24,28,46,0.38)';
+    ctx.fillRect(b.x, b.y, b.w, b.h);
+    ctx.fillStyle = 'rgba(139,151,184,0.8)';
+    ctx.fillRect(b.x, b.y, b.w, 4); ctx.fillRect(b.x, b.y, 4, b.h);
+    ctx.fillStyle = 'rgba(13,15,24,0.8)';
+    ctx.fillRect(b.x, b.y + b.h - 4, b.w, 4); ctx.fillRect(b.x + b.w - 4, b.y, 4, b.h);
+    drawArrow(b, name);
+  }
+}
+
 function isOutline(c, r) {
   return [[1,0],[-1,0],[0,1],[0,-1]].some(([dx,dy]) => {
     const nc = c + dx, nr = r + dy;
@@ -339,13 +382,13 @@ function drawHUD(t) {
   ctx.fillStyle = '#2e3550'; ctx.fillRect(0, HUD - 4, W, 4);
   // 暂停按钮
   drawBtnRect(pauseBtn, hoverBtn === 'pause');
-  const cx = pauseBtn.x + 24, cy = pauseBtn.y + 24;
+  const cx = pauseBtn.x + pauseBtn.w / 2, cy = pauseBtn.y + pauseBtn.h / 2;
   ctx.fillStyle = '#e8ecff';
   if (mode !== 'pause') {
-    ctx.fillRect(cx - 7, cy - 9, 5, 18); ctx.fillRect(cx + 2, cy - 9, 5, 18);
+    ctx.fillRect(cx - 8, cy - 10, 6, 20); ctx.fillRect(cx + 2, cy - 10, 6, 20);
   } else {
-    ctx.fillRect(cx - 5, cy - 8, 2, 16); ctx.fillRect(cx - 3, cy - 6, 2, 12);
-    ctx.fillRect(cx - 1, cy - 4, 2, 8);  ctx.fillRect(cx + 1, cy - 2, 2, 4);
+    ctx.fillRect(cx - 6, cy - 10, 3, 20); ctx.fillRect(cx - 3, cy - 8, 3, 16);
+    ctx.fillRect(cx, cy - 6, 3, 12);      ctx.fillRect(cx + 3, cy - 4, 3, 8);
   }
   // 三颗像素爱心(页面最上方居中)
   const s = 8, hw = 7 * s, hh = 6 * s, gap = 10;
@@ -361,8 +404,8 @@ function drawHUD(t) {
     hx += hw + gap;
   }
   // 右上角: 得分 + 计时
-  drawText('得分 ' + score, W - 16, 8, 2, '#ffd75e', 'right', true);
-  drawText('时间 ' + fmtTime(timeMs), W - 16, 34, 2, '#e8ecff', 'right', true);
+  drawText('得分 ' + score, W - 16, 6, 2.5, '#ffd75e', 'right', true);
+  drawText('时间 ' + fmtTime(timeMs), W - 16, 33, 2.5, '#e8ecff', 'right', true);
 }
 
 function drawGrid() {
@@ -521,6 +564,7 @@ function draw(t) {
     ctx.fillStyle = 'rgba(255,60,60,' + (0.28 * flash).toFixed(2) + ')';
     ctx.fillRect(0, HUD, W, GRID * CELL);
   }
+  if (isTouch && mode === 'play') drawDPad();
   if (mode === 'start') drawStart();
   else if (mode === 'pause') drawPauseOverlay();
   else if (mode === 'over') drawOver();
@@ -537,7 +581,7 @@ function inRect(p, b) { return p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p
 window.addEventListener('keydown', e => {
   if (e.code in KEYMAP) {
     e.preventDefault();
-    if (mode === 'play' && queue.length < 3) queue.push(DIRS[KEYMAP[e.code]].slice());
+    pushDir(DIRS[KEYMAP[e.code]]);
   } else if (e.code === 'Space' || e.code === 'KeyP') {
     e.preventDefault();
     if (mode === 'play') pauseGame();
@@ -568,6 +612,7 @@ canvas.addEventListener('mousemove', e => {
   canvas.style.cursor = hoverBtn ? 'pointer' : 'default';
 });
 canvas.addEventListener('click', e => {
+  if (Date.now() < suppressClickUntil) return;   // 滑动转向后屏蔽随之而来的 click
   const p = getPos(e);
   const vr = curVolRects;
   if (mode === 'start') {
@@ -584,6 +629,42 @@ canvas.addEventListener('click', e => {
     else resumeGame();
   }
 });
+
+/* ================= 触屏输入(滑动转向 + 虚拟方向键) ================= */
+canvas.addEventListener('touchstart', e => {
+  if (e.touches.length !== 1) return;
+  const t = e.touches[0];
+  touchStart = { x: t.clientX, y: t.clientY };
+  if (isTouch && mode === 'play') {                 // 虚拟方向键即时响应
+    const p = getPos(t);
+    for (const name of ['up', 'down', 'left', 'right']) {
+      if (inRect(p, dpad[name])) {
+        pushDir(DIRS[name]);
+        dpadPressed = name;
+        e.preventDefault();
+        return;
+      }
+    }
+  }
+}, { passive: false });
+canvas.addEventListener('touchmove', e => {
+  if (touchStart) e.preventDefault();               // 阻止滑动时页面滚动
+}, { passive: false });
+canvas.addEventListener('touchend', e => {
+  dpadPressed = null;
+  if (!touchStart) return;
+  const t = e.changedTouches[0];
+  const dx = t.clientX - touchStart.x, dy = t.clientY - touchStart.y;
+  touchStart = null;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) < 24) return;   // 轻点交给 click
+  if (mode === 'play') {
+    suppressClickUntil = Date.now() + 500;
+    const d = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? DIRS.right : DIRS.left)
+                                          : (dy > 0 ? DIRS.down : DIRS.up);
+    pushDir(d);
+  }
+});
+canvas.addEventListener('touchcancel', () => { touchStart = null; dpadPressed = null; });
 
 /* ================= 启动 ================= */
 initWorld();
