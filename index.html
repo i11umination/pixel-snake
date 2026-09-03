@@ -69,6 +69,7 @@ let snake, dir, queue, walls, food;
 let hp = 3, score = 0, timeMs = 0;
 let acc = 0, lastT = 0, respawnUntil = 0;
 let shakeUntil = 0, flash = 0, fx = [];
+let wallFxT = -1e9;                        // 墙体最近一次重布局的时间(用于闪烁提示)
 let heartPop = [0, 0, 0];
 let hoverBtn = null;
 
@@ -81,8 +82,15 @@ function resetSnake() {
   dir = DIRS.right.slice(); queue = [];
 }
 
-function genWalls() {
+function genWalls(forbidden) {
   walls = new Set();
+  const forbid = forbidden ? new Set(forbidden) : new Set();
+  // 出生点安全区始终保留, 保证重生时不会被墙堵住
+  for (let y = Math.max(0, START.y - SAFE_R); y <= Math.min(GRID - 1, START.y + SAFE_R); y++) {
+    for (let x = Math.max(0, START.x - SAFE_R); x <= Math.min(GRID - 1, START.x + SAFE_R); x++) {
+      forbid.add(x + ',' + y);
+    }
+  }
   for (let i = 0; i < WALL_COUNT; i++) {
     let placed = false;
     for (let att = 0; att < 400 && !placed; att++) {
@@ -95,13 +103,27 @@ function genWalls() {
       let ok = true; const cells = [];
       for (let j = 0; j < len; j++) {
         const cx = horiz ? x + j : x, cy = horiz ? y : y + j;
-        if (Math.abs(cx - START.x) <= SAFE_R && Math.abs(cy - START.y) <= SAFE_R) { ok = false; break; }
-        if (walls.has(cx + ',' + cy)) { ok = false; break; }
-        cells.push(cx + ',' + cy);
+        const key = cx + ',' + cy;
+        if (forbid.has(key)) { ok = false; break; }
+        if (walls.has(key)) { ok = false; break; }
+        cells.push(key);
       }
       if (ok) { cells.forEach(c => walls.add(c)); placed = true; }
     }
   }
+}
+
+function regenWalls() {
+  // 吃食物时重布局: 避开整条蛇身 + 当前行进方向的前 3 格
+  const forbid = new Set();
+  for (const s of snake) forbid.add(s[0] + ',' + s[1]);
+  const [hx, hy] = snake[0];
+  for (let i = 1; i <= 3; i++) {
+    const ax = hx + dir[0] * i, ay = hy + dir[1] * i;
+    if (ax >= 0 && ay >= 0 && ax < GRID && ay < GRID) forbid.add(ax + ',' + ay);
+  }
+  genWalls(forbid);
+  wallFxT = performance.now();
 }
 
 function spawnFood() {
@@ -145,6 +167,7 @@ function tick() {
   if (eating) {
     score++;
     fx.push({ x: nx, y: ny, t0: performance.now() });
+    regenWalls();          // 墙体重新布局(避开蛇身与前方3格)
     spawnFood();
   } else snake.pop();
 }
@@ -266,17 +289,19 @@ function drawGrid() {
   ctx.stroke();
 }
 
-function drawWalls() {
+function drawWalls(t) {
+  const glow = t - wallFxT < 400;   // 刚重布局时墙体整体变亮闪一下
   for (const key of walls) {
     const [x, y] = key.split(',').map(Number);
     const px = x * CELL, py = HUD + y * CELL;
-    ctx.fillStyle = '#6e7891'; ctx.fillRect(px + 1, py + 1, CELL - 2, CELL - 2);
-    ctx.fillStyle = '#98a3bd';
+    ctx.fillStyle = glow ? '#a9b3cc' : '#6e7891';
+    ctx.fillRect(px + 1, py + 1, CELL - 2, CELL - 2);
+    ctx.fillStyle = glow ? '#d5dcf0' : '#98a3bd';
     ctx.fillRect(px + 1, py + 1, CELL - 2, 3); ctx.fillRect(px + 1, py + 1, 3, CELL - 2);
-    ctx.fillStyle = '#454d63';
+    ctx.fillStyle = glow ? '#79839f' : '#454d63';
     ctx.fillRect(px + 1, py + CELL - 4, CELL - 2, 3); ctx.fillRect(px + CELL - 4, py + 1, 3, CELL - 2);
-    ctx.fillStyle = '#303647'; ctx.fillRect(px + 4, py + 4, CELL - 8, CELL - 8);
-    ctx.fillStyle = '#7a849c';
+    ctx.fillStyle = glow ? '#5d6880' : '#303647'; ctx.fillRect(px + 4, py + 4, CELL - 8, CELL - 8);
+    ctx.fillStyle = glow ? '#8d98b4' : '#7a849c';
     ctx.fillRect(px + 5, py + 8, CELL - 10, 2); ctx.fillRect(px + 8, py + 5, 2, CELL - 10);
   }
 }
@@ -289,11 +314,11 @@ function drawSnake(t) {
   for (let i = snake.length - 1; i >= 1; i--) {
     const px = snake[i][0] * CELL, py = HUD + snake[i][1] * CELL;
     const alt = (snake[i][0] + snake[i][1]) % 2 === 0;
-    ctx.fillStyle = alt ? '#54cf69' : '#49bd5e';
+    ctx.fillStyle = alt ? '#f6d43a' : '#eac629';
     ctx.fillRect(px + 1, py + 1, CELL - 2, CELL - 2);
-    ctx.fillStyle = alt ? '#a9f2b6' : '#9ce8aa';
+    ctx.fillStyle = alt ? '#fdf0a6' : '#f8e58a';
     ctx.fillRect(px + 1, py + 1, CELL - 2, 3);
-    ctx.fillStyle = '#1f7a3b';
+    ctx.fillStyle = '#9a7a1a';
     ctx.fillRect(px + 1, py + CELL - 3, CELL - 2, 2);
   }
   const hx = snake[0][0] * CELL, hy = HUD + snake[0][1] * CELL;
@@ -305,8 +330,8 @@ function drawSnake(t) {
 }
 
 function fallbackHead() {
-  ctx.fillStyle = '#54cf69'; ctx.fillRect(-8, -8, 16, 16);
-  ctx.fillStyle = '#1f7a3b'; ctx.fillRect(-8, 6, 16, 2);
+  ctx.fillStyle = '#f6d43a'; ctx.fillRect(-8, -8, 16, 16);
+  ctx.fillStyle = '#9a7a1a'; ctx.fillRect(-8, 6, 16, 2);
   ctx.fillStyle = '#e8ecff'; ctx.fillRect(-6, -4, 4, 4); ctx.fillRect(2, -4, 4, 4);
   ctx.fillStyle = '#141828'; ctx.fillRect(-5, -3, 2, 2); ctx.fillRect(3, -3, 2, 2);
 }
@@ -342,8 +367,8 @@ function drawStart() {
   drawTextShadow('像素贪吃蛇', 360, 268, 4, '#ffd75e', 'center', true);
   drawBtn(startBtn, '开始游戏', 3, true, hoverBtn === 'start');
   drawText('方向键 / WASD 移动', 360, 486, 2, '#c8d2f0', 'center');
-  drawText('吃到食物变长 · 撞墙损失生命', 360, 514, 2, '#c8d2f0', 'center');
-  drawText('空格键 暂停游戏', 360, 542, 2, '#8b97b8', 'center');
+  drawText('吃到食物变长 · 墙体重新布局', 360, 514, 2, '#c8d2f0', 'center');
+  drawText('撞墙损失生命 · 空格暂停游戏', 360, 542, 2, '#8b97b8', 'center');
 }
 function drawPauseOverlay() {
   ctx.fillStyle = 'rgba(10,12,20,0.72)'; ctx.fillRect(0, 0, W, H);
@@ -389,7 +414,7 @@ function draw(t) {
   ctx.save();
   if (t < shakeUntil) ctx.translate((Math.random() * 6 - 3) | 0, (Math.random() * 6 - 3) | 0);
   ctx.fillStyle = '#141828'; ctx.fillRect(0, HUD, W, GRID * CELL);
-  drawGrid(); drawWalls(); drawFood(t); drawSnake(t); drawFx(t);
+  drawGrid(); drawWalls(t); drawFood(t); drawSnake(t); drawFx(t);
   ctx.restore();
   if (flash > 0) {
     ctx.fillStyle = 'rgba(255,60,60,' + (0.28 * flash).toFixed(2) + ')';
