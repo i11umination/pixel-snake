@@ -32,7 +32,11 @@
 'use strict';
 /* ================= 常量与资源 ================= */
 const GRID = 27, CELL = 26, HUD = 64;
-const W = GRID * CELL, H = HUD + GRID * CELL;
+const isTouch = ('ontouchstart' in window) || (navigator && navigator.maxTouchPoints > 0);
+const W = GRID * CELL;
+const GRID_END = HUD + GRID * CELL;        // 地图底边
+const DPAD_H = isTouch ? 176 : 0;          // 触屏: 地图下方独立方向键区高度
+const H = GRID_END + DPAD_H;
 const CX = W / 2;                         // 画布水平中心(界面居中用)
 const START = {x: 13, y: 13};            // 出生点(地图中心)
 const SAFE_R = 5;                         // 初始布局: 出生点安全区半径(不生成墙)
@@ -99,7 +103,6 @@ applyVol();
 const DIRS = { up: [0,-1], down: [0,1], left: [-1,0], right: [1,0] };
 const KEYMAP = { ArrowUp:'up', KeyW:'up', ArrowDown:'down', KeyS:'down',
                  ArrowLeft:'left', KeyA:'left', ArrowRight:'right', KeyD:'right' };
-const isTouch = ('ontouchstart' in window) || (navigator && navigator.maxTouchPoints > 0);
 
 /* 像素爱心 7x6 点阵 */
 const HEART = ['0110110','1111111','1111111','0111110','0011100','0001000'];
@@ -118,12 +121,12 @@ let ptrDown = null, dpadPressed = null, suppressClickUntil = 0, resumeOnUp = fal
 const pauseBtn = { x: 8, y: 0, w: 64, h: 64 };          // 放大触控区
 const startBtn = { x: CX - 130, y: 372, w: 260, h: 72 };
 const restartBtn = { x: CX - 130, y: 508, w: 260, h: 72 };
-// 触屏虚拟方向键(左下角十字布局, 中心 x=160)
+// 触屏虚拟方向键: 地图下方独立区域内, 标准十字(上居中, 下排左/下/右, 键间留8px缝)
 const dpad = isTouch ? {
-  up:    { x: 124, y: 492, w: 72, h: 72 },
-  down:  { x: 124, y: 636, w: 72, h: 72 },
-  left:  { x: 52,  y: 600, w: 72, h: 72 },
-  right: { x: 196, y: 600, w: 72, h: 72 },
+  up:    { x: CX - 38,  y: GRID_END + 10, w: 76, h: 76 },
+  down:  { x: CX - 38,  y: GRID_END + 90, w: 76, h: 76 },
+  left:  { x: CX - 122, y: GRID_END + 90, w: 76, h: 76 },
+  right: { x: CX + 46,  y: GRID_END + 90, w: 76, h: 76 },
 } : null;
 
 function pushDir(d) {                     // 方向输入(键盘/滑动/虚拟键共用)
@@ -413,7 +416,7 @@ function drawGrid() {
   ctx.beginPath();
   for (let i = 1; i < GRID; i++) {
     const p = i * CELL + 0.5;
-    ctx.moveTo(p, HUD); ctx.lineTo(p, H);
+    ctx.moveTo(p, HUD); ctx.lineTo(p, GRID_END);
     ctx.moveTo(0, HUD + p); ctx.lineTo(W, HUD + p);
   }
   ctx.stroke();
@@ -421,7 +424,7 @@ function drawGrid() {
   ctx.beginPath();
   for (let i = 5; i < GRID; i += 5) {
     const p = i * CELL + 0.5;
-    ctx.moveTo(p, HUD); ctx.lineTo(p, H);
+    ctx.moveTo(p, HUD); ctx.lineTo(p, GRID_END);
     ctx.moveTo(0, HUD + p); ctx.lineTo(W, HUD + p);
   }
   ctx.stroke();
@@ -560,6 +563,12 @@ function draw(t) {
   ctx.fillStyle = '#141828'; ctx.fillRect(0, HUD, W, GRID * CELL);
   drawGrid(); drawWalls(t); drawFood(t); drawSnake(t); drawFx(t);
   ctx.restore();
+  if (isTouch) {                        // 方向键独立区域(地图下方, 不遮挡视野)
+    ctx.fillStyle = '#0d1019';
+    ctx.fillRect(0, GRID_END, W, DPAD_H);
+    ctx.fillStyle = '#2e3550';
+    ctx.fillRect(0, GRID_END, W, 4);
+  }
   if (flash > 0) {
     ctx.fillStyle = 'rgba(255,60,60,' + (0.28 * flash).toFixed(2) + ')';
     ctx.fillRect(0, HUD, W, GRID * CELL);
