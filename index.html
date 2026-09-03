@@ -63,18 +63,37 @@ const HEAD_SPRITE = new Image(); HEAD_SPRITE.src = 'data:image/png;base64,iVBORw
 const FOOD_SPRITE = new Image(); FOOD_SPRITE.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABoAAAAaCAYAAACpSkzOAAABm0lEQVR4nGNkwAG+fTzx/9OryxjifGK6DFz8FowMJAIUDS9uz/4Potk+7iSo8Re/O0mWMiJbQowF2CyUUE0laBkjKIh+3O5hoBQImazBaxnjuzMh4OBCB/9+3MVrMBOHMkmWMSFzVl+8CMaELEFWiwxwORrFot+vTjMcvfqN4d4/E4a1N7/gtaTpxA+GAMlfYLUwh8Ech8syJpgCca+HjIv6njI+v36IoG9g6jtTlzNefc/C8PfTOzBGT71YfRRXJA2XDFbnwWkByMAPzz7B+chsmKOxpV7GN0cM/8MMmL3/EUOqoxxYgplPCCXSQYYgu3r2/kdgGqYepgc5kSAnDhSL0MHtR6oofFW52zh9is0y5DzGwoAHEGMwPoAchEy4fEMu+PvpHUr2gCUMJuT4oCVgooWhf5FCCBZ8cIuo7at/aMFHNR8xozkU3VcoFpHrK2aoPnT9oGINBljQMyVIMamp8C8R6plAliAXiuQkdWY+IThGBzBfwQtVbJqRaXzgL7RQxedIxpfb5P/jMoyaGZmF2gbSNcMyjAiLAPLE2v48BGTvAAAAAElFTkSuQmCC';
 let headOk = false, foodOk = false;
 HEAD_SPRITE.onload = () => headOk = true;
-FOOD_SPRITE.onload = () => foodOk = true;
+// 绿色奶蛋: 食物精灵染成绿色(保留明暗纹理)
+const greenFoodCanvas = document.createElement('canvas');
+greenFoodCanvas.width = CELL; greenFoodCanvas.height = CELL;
+const gctx = greenFoodCanvas.getContext('2d');
+gctx.imageSmoothingEnabled = false;
+FOOD_SPRITE.onload = () => {
+  foodOk = true;
+  gctx.drawImage(FOOD_SPRITE, 0, 0, CELL, CELL);
+  gctx.globalCompositeOperation = 'source-in';
+  gctx.fillStyle = 'rgba(74,222,106,0.88)';
+  gctx.fillRect(0, 0, CELL, CELL);
+  gctx.globalCompositeOperation = 'source-over';
+};
+
+/* 绿色奶蛋: 15%概率出现, 0.3s/格随机游走(避开墙与蛇身), 4秒消失, 吃到回1血 */
+const GREEN_EGG_P = 0.15;            // 每次吃奶蛋的刷新概率
+const GREEN_EGG_MOVE_MS = 300;       // 游走速度(比蛇的130ms慢得多)
+const GREEN_EGG_LIFE_MS = 4000;      // 存活时间
 
 /* 背景音乐与音量 */
 const bgm = new Audio('bgm.mp3');
 bgm.loop = true;
 const sfxHit = new Audio('hit.mp3');   // 扣血/游戏结束
 const sfxEat = [new Audio('eat1.mp3'), new Audio('eat2.mp3'), new Audio('eat3.mp3')];
+const sfxHeal = new Audio('heal.mp3'); // 吃绿色奶蛋回血
 let vol = 1, volMuted = false, bgmStarted = false;
 function applyVol() {
   const v = volMuted ? 0 : vol;
   bgm.volume = v;
   sfxHit.volume = v;
+  sfxHeal.volume = v;
   for (const a of sfxEat) a.volume = v;
 }
 function playSfx(a) {                   // 从头播放(允许连续触发)
@@ -110,6 +129,7 @@ const HEART = ['0110110','1111111','1111111','0111110','0011100','0001000'];
 /* ================= 游戏状态 ================= */
 let mode = 'start';                       // start | play | pause | over
 let snake, dir, queue, walls, food;
+let greenEgg = null;                      // 绿色奶蛋 { x, y, spawnT, moveT }
 let hp = 3, score = 0, timeMs = 0;
 let acc = 0, lastT = 0, respawnUntil = 0;
 let shakeUntil = 0, flash = 0, fx = [];
@@ -176,6 +196,7 @@ function regenWalls() {
   const forbid = new Set();
   for (const s of snake) forbid.add(s[0] + ',' + s[1]);
   if (food) forbid.add(food.x + ',' + food.y);
+  if (greenEgg) forbid.add(greenEgg.x + ',' + greenEgg.y);
   const [hx, hy] = snake[0];
   for (let i = 1; i <= 3; i++) {
     // 前方3格也按传送规则换算(出界绕到对侧)
@@ -191,11 +212,41 @@ function spawnFood() {
   for (let y = 0; y < GRID; y++) for (let x = 0; x < GRID; x++) {
     if (walls.has(x + ',' + y)) continue;
     if (snake.some(s => s[0] === x && s[1] === y)) continue;
+    if (greenEgg && greenEgg.x === x && greenEgg.y === y) continue;
     free.push([x, y]);
   }
   if (!free.length) { mode = 'over'; return; }
   const c = free[Math.floor(Math.random() * free.length)];
   food = { x: c[0], y: c[1] };
+}
+
+function spawnGreenEgg() {
+  const free = [];
+  for (let y = 0; y < GRID; y++) for (let x = 0; x < GRID; x++) {
+    if (walls.has(x + ',' + y)) continue;
+    if (snake.some(s => s[0] === x && s[1] === y)) continue;
+    if (food && food.x === x && food.y === y) continue;
+    free.push([x, y]);
+  }
+  if (!free.length) return;
+  const c = free[Math.floor(Math.random() * free.length)];
+  const now = performance.now();
+  greenEgg = { x: c[0], y: c[1], spawnT: now, moveT: now };
+}
+
+function moveGreenEgg() {
+  const options = [];
+  for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+    const nx = greenEgg.x + dx, ny = greenEgg.y + dy;
+    if (nx < 0 || ny < 0 || nx >= GRID || ny >= GRID) continue;  // 不穿边缘
+    if (walls.has(nx + ',' + ny)) continue;                      // 不撞墙
+    if (snake.some(s => s[0] === nx && s[1] === ny)) continue;   // 不踩蛇身
+    options.push([nx, ny]);
+  }
+  if (options.length) {
+    const c = options[Math.floor(Math.random() * options.length)];
+    greenEgg.x = c[0]; greenEgg.y = c[1];
+  }
 }
 
 function initWorld() { genWalls(); resetSnake(); spawnFood(); }
@@ -204,6 +255,7 @@ function initWorld() { genWalls(); resetSnake(); spawnFood(); }
 function startGame() {
   mode = 'play'; hp = 3; score = 0; timeMs = 0; acc = 0;
   resetSnake(); respawnUntil = 0; fx = []; flash = 0; heartPop = [0,0,0];
+  greenEgg = null;
   spawnFood();
   ensureBgm();                 // 点击开始 = 用户手势, 此时启动背景音乐
 }
@@ -225,6 +277,7 @@ function tick() {
   if (ny < 0) { ny = GRID - 1; wrapped = true; }
   else if (ny >= GRID) { ny = 0; wrapped = true; }
   const eating = food && nx === food.x && ny === food.y;
+  const eatingGreen = greenEgg && nx === greenEgg.x && ny === greenEgg.y;
   if (walls.has(nx + ',' + ny)) { onHit(); return; }
   const bodyLen = eating ? snake.length : snake.length - 1;
   for (let i = 0; i < bodyLen; i++) {
@@ -232,12 +285,19 @@ function tick() {
   }
   snake.unshift([nx, ny]);
   if (wrapped) fx.push({ x: nx, y: ny, t0: performance.now() });   // 传送入口提示圈
+  if (eatingGreen) {                              // 吃绿色奶蛋: 回血+音效, 不加长
+    if (hp < 3) hp++;
+    playSfx(sfxHeal);
+    fx.push({ x: nx, y: ny, t0: performance.now(), color: 'rgba(74,222,106,#A)' });
+    greenEgg = null;
+  }
   if (eating) {
     score++;
     fx.push({ x: nx, y: ny, t0: performance.now() });
     playSfx(sfxEat[Math.floor(Math.random() * sfxEat.length)]);   // 随机三选一
     regenWalls();          // 墙体重新布局(避开蛇身与前方3格)
     spawnFood();
+    if (Math.random() < GREEN_EGG_P) spawnGreenEgg();   // 15%概率刷新绿色奶蛋
   } else snake.pop();
 }
 
@@ -502,12 +562,33 @@ function drawFood(t) {
   else fallbackFood(px, py);
 }
 
+function drawGreenEgg(t) {
+  if (!greenEgg) return;
+  const age = t - greenEgg.spawnT;
+  let alpha = 1;
+  if (age > GREEN_EGG_LIFE_MS - 1000) alpha = ((t / 150) | 0) % 2 === 0 ? 0.9 : 0.3;   // 消失前闪烁
+  const bob = ((t / 230) | 0) % 2 === 0 ? 0 : -1;
+  const px = greenEgg.x * CELL, py = HUD + greenEgg.y * CELL + bob;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  if (foodOk) ctx.drawImage(greenFoodCanvas, px, py, CELL, CELL);
+  else fallbackFoodGreen(px, py);
+  ctx.restore();
+}
+function fallbackFoodGreen(px, py) {
+  const c = CELL;
+  ctx.fillStyle = '#3f9e4e'; ctx.fillRect(px + 3, py + 4, c - 5, c - 7);
+  ctx.fillStyle = '#7fd18a'; ctx.fillRect(px + 5, py + 6, 4, 4);
+  ctx.fillStyle = '#1d5226'; ctx.fillRect(px + c / 2 - 3, py, 6, 6);
+}
+
 function drawFx(t) {
   for (const f of fx) {
     const age = t - f.t0;
     if (age > 260) continue;
     const r = Math.floor(age / 260 * 9);
-    ctx.strokeStyle = 'rgba(255,255,255,' + (0.9 - age / 260).toFixed(2) + ')';
+    const a = (0.9 - age / 260).toFixed(2);
+    ctx.strokeStyle = (f.color || 'rgba(255,255,255,#A)').replace('#A', a);
     ctx.lineWidth = 2;
     ctx.strokeRect(f.x * CELL - r, HUD + f.y * CELL - r, CELL + 2 * r, CELL + 2 * r);
   }
@@ -558,6 +639,10 @@ function frame(t) {
       acc += dt;
       while (acc >= TICK_MS) { acc -= TICK_MS; tick(); if (mode !== 'play') break; }
     }
+    if (greenEgg) {                 // 绿色奶蛋: 4秒消失 / 0.3秒游走一格
+      if (t - greenEgg.spawnT >= GREEN_EGG_LIFE_MS) greenEgg = null;
+      else if (t - greenEgg.moveT >= GREEN_EGG_MOVE_MS) { greenEgg.moveT = t; moveGreenEgg(); }
+    }
   }
   if (flash > 0) flash = Math.max(0, flash - dt / 300);
   draw(t);
@@ -569,7 +654,7 @@ function draw(t) {
   ctx.save();
   if (t < shakeUntil) ctx.translate((Math.random() * 6 - 3) | 0, (Math.random() * 6 - 3) | 0);
   ctx.fillStyle = '#141828'; ctx.fillRect(0, HUD, W, GRID * CELL);
-  drawGrid(); drawWalls(t); drawFood(t); drawSnake(t); drawFx(t);
+  drawGrid(); drawWalls(t); drawFood(t); drawGreenEgg(t); drawSnake(t); drawFx(t);
   ctx.restore();
   if (isTouch) {                        // 方向键独立区域(地图下方, 不遮挡视野)
     ctx.fillStyle = '#0d1019';
